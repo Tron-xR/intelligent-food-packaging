@@ -12,8 +12,9 @@ The initial implementation is a transparent rules-based MVP. It ranks material f
 - Returns up to three ranked recommendations with alternatives, confidence, specifications, sustainability tags, and a rule trace.
 - Estimates a shelf-life point and range using an explainable heuristic.
 - Returns warnings for contradictory inputs and reduced-confidence nearest matches.
-- Exposes `/health` and `POST /recommend` through FastAPI.
-- Includes API, engine, boundary, and regression tests plus GitHub Actions CI.
+- Persists each recommendation and accepts one outcome record per recommendation through `POST /feedback`.
+- Exposes `/health`, `POST /recommend`, and `POST /feedback` through FastAPI.
+- Includes API, engine, boundary, persistence, and regression tests plus GitHub Actions CI.
 
 ## Quick start
 
@@ -54,6 +55,21 @@ curl -X POST http://127.0.0.1:8000/recommend \
   }'
 ```
 
+Every returned recommendation includes a `recommendation_id`. Submit a later outcome with:
+
+```bash
+curl -X POST http://127.0.0.1:8000/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recommendation_id": "replace-with-a-returned-id",
+    "actual_shelf_life_days": 13,
+    "outcome_rating": "successful",
+    "notes": "Pilot result recorded by the packaging team."
+  }'
+```
+
+The default store is `app/data/recommendations.sqlite3`. Set `FOOD_PACKAGING_DB` to use a different SQLite path; tests use an in-memory database.
+
 ## Project layout
 
 ```text
@@ -61,6 +77,7 @@ app/
   data/                 Editable material and commodity reference data
   engine.py             Rules, matching, ranking, explanations, estimates
   knowledge_base.py     JSON loading and reference lookup
+  store.py              SQLite recommendation and feedback persistence
   main.py               FastAPI application and endpoints
   schemas.py            Request and response contracts
  tests/                  API and engine tests
@@ -83,7 +100,7 @@ The material ranges and rule thresholds are an engineering starting point for pr
 ## Next development slices
 
 1. Replace the seed knowledge base with versioned, expert-reviewed reference data.
-2. Add persistence for recommendation logs and user feedback.
+2. Add retrieval endpoints for recommendation history and feedback analytics.
 3. Add a calibrated shelf-life model trained on literature and pilot outcomes.
 4. Add a material-ranking model as a re-ranking layer over the hard rule filters.
 5. Build the web input form and results dashboard described in the design documents.

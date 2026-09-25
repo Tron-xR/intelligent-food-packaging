@@ -77,6 +77,7 @@ class SustainabilityOutput(BaseModel):
 
 
 class RecommendationOutput(BaseModel):
+    recommendation_id: str | None = None
     material: str
     material_type: str
     confidence: Annotated[float, Field(ge=0, le=1)]
@@ -94,3 +95,26 @@ class RecommendationResponse(BaseModel):
     model_version: str
     disclaimer: str
     warnings: list[str] = Field(default_factory=list)
+
+
+class OutcomeRating(StrEnum):
+    SUCCESSFUL = "successful"
+    PARTIAL = "partial"
+    UNSUCCESSFUL = "unsuccessful"
+
+
+class FeedbackInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recommendation_id: Annotated[str, Field(min_length=1, max_length=64)]
+    actual_shelf_life_days: Annotated[int, Field(ge=0, le=3650)] | None = None
+    outcome_rating: OutcomeRating
+    notes: Annotated[str, Field(max_length=2000)] | None = None
+
+
+class FeedbackResponse(BaseModel):
+    feedback_id: str
+    recommendation_id: str
+    outcome_rating: OutcomeRating
+    created_at: str
+    status: str
