@@ -1,204 +1,376 @@
-import streamlit as st
-import requests
+from __future__ import annotations
+
 import json
-import qrcode
+import os
 from io import BytesIO
+from typing import Any
 
-# Use 127.0.0.1 instead of localhost to prevent Pinggy tunneling cross-origin blocks
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL_NAME = "qwen3-coder" 
+import qrcode
+import requests
+import streamlit as st
 
-# Comprehensive database covering all materials mandated by MoFPI
-PACKAGING_DB = {
-    "LDPE (Low-Density Polyethylene)": {
-        "otr": "2000-8000 cc/m²/day", "wvtr": "15-20 g/m²/day", "thickness_um": "40-75",
-        "seal_temp": "105-120°C", "mechanical": "High flexibility, moderate puncture resistance",
-        "cost_per_kg": "₹120", "sustainability": "Recyclable (Code 4)", "type": "Monolayer"
-    },
-    "HDPE (High-Density Polyethylene)": {
-        "otr": "1000-3000 cc/m²/day", "wvtr": "4-10 g/m²/day", "thickness_um": "30-60",
-        "seal_temp": "125-135°C", "mechanical": "High tensile strength, stiff",
-        "cost_per_kg": "₹130", "sustainability": "Recyclable (Code 2)", "type": "Monolayer"
-    },
-    "PET / Polyester": {
-        "otr": "50-100 cc/m²/day", "wvtr": "20-40 g/m²/day", "thickness_um": "12-25",
-        "seal_temp": "Requires sealing layer (PE/EVA)", "mechanical": "Very high tensile strength, dimensional stability",
-        "cost_per_kg": "₹170", "sustainability": "Widely Recyclable (Code 1)", "type": "Substrate/Laminate"
-    },
-    "EVOH Multi-Layer Barrier (PE/EVOH/PE)": {
-        "otr": "1-5 cc/m²/day", "wvtr": "10-25 g/m²/day", "thickness_um": "60-100",
-        "seal_temp": "110-130°C", "mechanical": "High puncture resistance, gas-tight",
-        "cost_per_kg": "₹360", "sustainability": "Difficult to recycle (Multi-material)", "type": "Barrier Multi-layer"
-    },
-    "Metallized BOPP/PET Film": {
-        "otr": "15-50 cc/m²/day", "wvtr": "1-3 g/m²/day", "thickness_um": "15-30",
-        "seal_temp": "115-125°C", "mechanical": "Good tear resistance, light barrier",
-        "cost_per_kg": "₹210", "sustainability": "Non-biodegradable, difficult to separate", "type": "Metallized"
-    },
-    "Aluminium Foil Laminate (PET/Al/PE)": {
-        "otr": "< 0.1 cc/m²/day (True Barrier)", "wvtr": "< 0.1 g/m²/day", "thickness_um": "70-120",
-        "seal_temp": "130-150°C", "mechanical": "High burst strength, zero pinhole tolerance",
-        "cost_per_kg": "₹310", "sustainability": "Non-recyclable composite", "type": "Barrier Foil"
-    },
-    "Micro-Perforated Breathable Film": {
-        "otr": "> 10,000 cc/m²/day (Controlled Diffusion)", "wvtr": "50-100 g/m²/day", "thickness_um": "25-40",
-        "seal_temp": "105-115°C", "mechanical": "Moderate tear strength",
-        "cost_per_kg": "₹240", "sustainability": "Recyclable PE base", "type": "Breathable"
-    },
-    "Biodegradable PLA / PBAT Blend": {
-        "otr": "400-800 cc/m²/day", "wvtr": "150-250 g/m²/day", "thickness_um": "30-50",
-        "seal_temp": "85-105°C", "mechanical": "Moderate tensile, lower puncture strength",
-        "cost_per_kg": "₹420", "sustainability": "Compostable (EN 13432)", "type": "Bio-based"
-    }
+from app.knowledge_base import MATERIALS
+
+API_BASE_URL = os.getenv("FOOD_PACKAGING_API_URL", "http://127.0.0.1:8000").rstrip("/")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder")
+
+CATEGORY_OPTIONS = {
+    "Fresh produce": "fresh_produce",
+    "Dairy": "dairy",
+    "Dry staple / processed": "dry_staple",
+    "Meat / poultry": "meat_poultry",
+    "Bakery": "bakery",
+    "Oil / fat rich": "oil_fat_rich",
+    "Ready-to-eat": "ready_to_eat",
 }
 
-st.set_page_config(page_title="MoFPI Smart Packaging Engine", layout="wide")
-st.title("🌱 AI-Powered Intelligent Food Packaging Recommendation System")
-st.markdown("**Problem Statement ID: SIH26236** | MoFPI Decision Support System")
+RESPIRATION_OPTIONS = {
+    "None / non-respiring": 0.0,
+    "Low (<10 mL CO2/kg-h)": 7.5,
+    "Moderate (10-20 mL CO2/kg-h)": 15.0,
+    "High (20-40 mL CO2/kg-h)": 30.0,
+    "Extremely high (>40 mL CO2/kg-h)": 50.0,
+}
 
-# 1. UI Wrapped in a Form to prevent accidental re-runs on slider/dropdown touch
-with st.form(key="mofpi_input_form"):
-    col1, col2, col3 = st.columns(3)
+STORAGE_OPTIONS = {
+    "Ambient (20-28 C)": ("ambient", 25.0),
+    "Chilled (2-8 C)": ("chilled", 5.0),
+    "Frozen (-18 C or below)": ("frozen", -18.0),
+}
 
-    with col1:
-        st.subheader("1. Commodity Properties")
-        commodity_name = st.text_input("Food Commodity", placeholder="e.g., Guava, Paneer, Roasted Cashews")
-        category = st.selectbox("Category", ["Fresh Produce (Fruits/Veg)", "Dairy Products", "Processed / Snacks / Dry", "Meat, Poultry & Seafood", "Bakery & Confectionery"])
-        desired_shelf_life = st.number_input("Desired Target Shelf Life (Days)", min_value=1, value=14)
-        language = st.selectbox("Language / भाषा / भाषा", ["English", "Marathi", "Hindi"])
+TRANSPORT_OPTIONS = {
+    "Local transit": "local_delivery",
+    "Refrigerated truck": "refrigerated_truck",
+    "Long-haul road": "ambient_truck",
+    "Export / sea freight": "sea_freight",
+}
 
-    with col2:
-        st.subheader("2. Chemical & Biological Metrics")
-        moisture = st.slider("Moisture Content (%)", 0, 100, 65)
-        fat_content = st.slider("Oil/Fat Content (%)", 0, 100, 5)
-        ph_level = st.number_input("Product pH Level", 1.0, 14.0, 5.5, step=0.1)
-        respiration = st.selectbox("Respiration Rate", ["None / Non-respiring", "Low (<10 mg CO2/kg-h)", "Moderate (10-20 mg CO2/kg-h)", "High (20-40 mg CO2/kg-h)", "Extremely High / Climacteric (>40 mg CO2/kg-h)"])
 
-    with col3:
-        st.subheader("3. Environmental & Logistics")
-        storage_type = st.selectbox("Storage Condition", ["Ambient (20°C to 28°C)", "Chilled (2°C to 8°C)", "Frozen (-18°C or below)"])
-        rel_humidity = st.slider("Storage Relative Humidity (% RH)", 10, 100, 85)
-        transport_stress = st.selectbox("Transportation Stress", ["Local Transit (Low vibration)", "Inter-state Highway (Moderate stress)", "Long-haul / Export / Rough handling"])
-
-    # The Submit button MUST be inside the form block
-    submit_pressed = st.form_submit_button(label="Generate MoFPI Packaging Specification Matrix", type="primary")
-
-# QR Code Generator Function
-def generate_qr(payload_dict):
-    qr = qrcode.QRCode(version=1, box_size=5, border=2)
-    qr.add_data(json.dumps(payload_dict, indent=2))
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-st.divider()
-
-# 2. Session state to prevent silent reload bug when downloading QR
-if "report_generated" not in st.session_state:
-    st.session_state.report_generated = False
-    st.session_state.report_text = ""
-    st.session_state.qr_image = None
-
-if submit_pressed:
-    if not commodity_name.strip():
-        st.warning("Please specify the Food Commodity Name.")
-    else:
-        st.session_state.report_generated = True
-        st.session_state.report_text = ""  # Reset previous text
-        st.session_state.qr_image = None
-
-# 3. Main Generation & Streaming Logic
-if st.session_state.report_generated:
-    col_left, col_right = st.columns([2.8, 1.2])
-    
-    with col_left:
-        st.success("MoFPI Technical Packaging Specification Generating...")
-        
-        db_context = json.dumps(PACKAGING_DB, indent=2)
-        system_prompt = f"""
-        You are an expert Food Packaging Scientist and Technologist representing the Ministry of Food Processing Industries (MoFPI).
-        Analyze these scientific parameters for a food commodity and prescribe the packaging configuration:
-        
-        - Commodity: {commodity_name} (Category: {category})
-        - Target Shelf Life: {desired_shelf_life} days
-        - Chemical: Moisture: {moisture}%, Fat/Oil: {fat_content}%, pH: {ph_level}
-        - Biological: Respiration Rate: {respiration}
-        - Storage: {storage_type}, {rel_humidity}% Relative Humidity
-        - Transport Logistics: {transport_stress}
-        
-        You MUST prioritize selecting materials and specifications from this certified packaging database:
-        {db_context}
-        
-        Generate your technical evaluation formatted strictly under these headers in {language}:
-        
-        ### 1. Recommended Material Architecture
-        - **Primary Film:** Choose exact match from DB and justify based on fat, moisture, and pH.
-        - **Secondary/Outer Layer:** Specify laminate structure if needed.
-        - **Sustainable / Eco-Friendly Alternative:** Recommend a biodegradable or circular alternative from the DB.
-        
-        ### 2. Engineering & Barrier Specifications
-        - **Target OTR:** Specific range in cc/m²/day. (Explain risk: oxidation vs. anaerobic fermentation).
-        - **Target WVTR:** Specific range in g/m²/day. (Explain moisture loss or caking risk).
-        - **Recommended Thickness:** Film thickness in microns (µm).
-        - **Mechanical Strength & Sealability:** Dart impact/puncture strength requirements based on transport stress, and heat seal temperature range.
-        
-        ### 3. MAP (Modified Atmosphere Packaging) Protocol
-        - **Suitability:** (Yes / No / Not Recommended)
-        - **Recommended Gas Mixture:** Target %O2, %CO2, and %N2.
-        - **Respiration Management:** For fresh produce, explain whether breathable or micro-perforated film is required to balance respiration.
-        
-        ### 4. Shelf-Life & Cost Optimization Matrix
-        - **Unpackaged / Traditional Shelf-Life:** Estimated days.
-        - **Extended Shelf-Life with Recommended Pack:** Estimated days.
-        - **Cost Evaluation:** Economic viability for small farmers/MSMEs using the DB cost metrics.
-        """
-
-        try:
-            payload = {"model": MODEL_NAME, "prompt": system_prompt, "stream": True}
-            
-            # Timeout limits added to fail gracefully on Pinggy
-            response = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=(15.0, 300.0))
-            response.raise_for_status()
-            
-            # Stream the data live dynamically word-by-word
-            def stream_generator():
-                for line in response.iter_lines():
-                    if line:
-                        chunk = json.loads(line)
-                        if "response" in chunk:
-                            yield chunk["response"]
-                            
-            st.session_state.report_text = st.write_stream(stream_generator())
-            
-        except requests.exceptions.ConnectionError:
-            st.error(f"🚨 AI Offline: Could not connect to local Ollama at {OLLAMA_URL}. Please ensure 'ollama run {MODEL_NAME}' is active.")
-        except requests.exceptions.Timeout:
-            st.error("⏳ AI Timeout: The model took too long to respond. If you are using Pinggy, the connection dropped.")
-        except Exception as e:
-            st.error(f"System Error: {e}")
-
-    with col_right:
-        st.subheader("📦 Traceability QR")
-        traceability_payload = {
-            "commodity": commodity_name,
+def build_request_payload(
+    *,
+    commodity_name: str,
+    category: str,
+    desired_shelf_life: int,
+    moisture: float,
+    fat_content: float,
+    ph_level: float,
+    respiration: float,
+    storage_type: str,
+    storage_temp_c: float,
+    relative_humidity_pct: float,
+    transport_mode: str,
+    transport_duration_hr: float,
+) -> dict[str, Any]:
+    return {
+        "commodity": {
+            "name": commodity_name,
             "category": category,
-            "storage": storage_type,
-            "target_life_days": desired_shelf_life,
-            "rh_pct": rel_humidity,
+            "moisture_content_pct": moisture,
+            "fat_content_pct": fat_content,
             "ph": ph_level,
-            "compliance": "MoFPI-SIH26236-Standard",
-            "status": "Verified Packaging Spec"
-        }
-        
-        st.session_state.qr_image = generate_qr(traceability_payload)
-        st.image(st.session_state.qr_image, caption="Scan with Handheld Logistics Scanner")
-        
-        st.download_button(
-            label="Download Supply Chain QR",
-            data=st.session_state.qr_image,
-            file_name=f"{commodity_name}_traceability_spec.png",
-            mime="image/png"
+            "respiration_rate_ml_co2_per_kg_hr": respiration,
+        },
+        "requirements": {"desired_shelf_life_days": desired_shelf_life},
+        "environment": {
+            "storage_type": storage_type,
+            "storage_temp_c": storage_temp_c,
+            "relative_humidity_pct": relative_humidity_pct,
+            "transport_mode": transport_mode,
+            "transport_duration_hr": transport_duration_hr,
+        },
+    }
+
+
+def fetch_recommendation(payload: dict[str, Any]) -> dict[str, Any]:
+    response = requests.post(
+        f"{API_BASE_URL}/recommend",
+        json=payload,
+        timeout=(5, 30),
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not isinstance(result, dict):
+        raise ValueError("The recommendation API returned an invalid response.")
+    return result
+
+
+def submit_feedback(payload: dict[str, Any]) -> dict[str, Any]:
+    response = requests.post(
+        f"{API_BASE_URL}/feedback",
+        json=payload,
+        timeout=(5, 30),
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not isinstance(result, dict):
+        raise ValueError("The feedback API returned an invalid response.")
+    return result
+
+
+def generate_qr(payload: dict[str, Any]) -> bytes:
+    code = qrcode.QRCode(version=1, box_size=5, border=2)
+    code.add_data(json.dumps(payload, ensure_ascii=False))
+    code.make(fit=True)
+    image = code.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def generate_ollama_report(
+    payload: dict[str, Any],
+    recommendation_response: dict[str, Any],
+    language: str,
+) -> str:
+    context = json.dumps(MATERIALS, ensure_ascii=False)
+    request_context = json.dumps(payload, ensure_ascii=False)
+    response_context = json.dumps(recommendation_response, ensure_ascii=False)
+    prompt = (
+        "You are a food packaging decision-support assistant. Explain the supplied rule-based "
+        "recommendation for a non-technical user. Do not claim certification, regulatory approval, "
+        "or laboratory validation. Use the requested language. "
+        f"Language: {language}. Material context: {context}. "
+        f"User request: {request_context}. API result: {response_context}."
+    )
+    chunks: list[str] = []
+    with requests.post(
+        OLLAMA_URL,
+        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": True},
+        stream=True,
+        timeout=(15, 300),
+    ) as response:
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(chunk, dict) and isinstance(chunk.get("response"), str):
+                chunks.append(chunk["response"])
+    return "".join(chunks)
+
+
+def _recommendation_rows(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for recommendation in recommendations:
+        specs = recommendation["specs"]
+        sustainability = recommendation["sustainability"]
+        rows.append(
+            {
+                "material": recommendation["material"],
+                "confidence": f"{float(recommendation['confidence']):.0%}",
+                "OTR": specs["otr_cc_m2_day"],
+                "WVTR": specs["wvtr_g_m2_day"],
+                "thickness_um": specs["thickness_micron"],
+                "predicted_days": recommendation["predicted_shelf_life_days"],
+                "recyclable": sustainability["recyclable"],
+                "biodegradable": sustainability["biodegradable"],
+            }
         )
-        st.caption("QR contains machine-readable JSON: storage limits, target shelf life, and transit parameters.")
+    return rows
+
+
+def _qr_payload(
+    request_payload: dict[str, Any],
+    recommendation_response: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "project": "intelligent-food-packaging",
+        "request": request_payload,
+        "recommendation_ids": [
+            item["recommendation_id"]
+            for item in recommendation_response.get("recommendations", [])
+        ],
+        "model_version": recommendation_response.get("model_version"),
+        "notice": recommendation_response.get("disclaimer"),
+    }
+
+
+def render_results(
+    request_payload: dict[str, Any],
+    recommendation_response: dict[str, Any],
+    language: str,
+) -> None:
+    recommendations = recommendation_response.get("recommendations", [])
+    if not recommendations:
+        st.warning("No packaging recommendation was returned for this input.")
+        return
+
+    left, right = st.columns([2.5, 1])
+    with left:
+        st.subheader("Ranked recommendation matrix")
+        st.dataframe(
+            _recommendation_rows(recommendations),
+            use_container_width=True,
+            hide_index=True,
+        )
+        for index, recommendation in enumerate(recommendations, start=1):
+            st.markdown(f"#### {index}. {recommendation['material']}")
+            st.write(
+                f"Confidence: {float(recommendation['confidence']):.0%} | "
+                f"Predicted shelf life: {recommendation['predicted_shelf_life_days']} days"
+            )
+            st.json(recommendation["specs"])
+            st.info(recommendation["explanation"])
+
+    with right:
+        st.subheader("Traceability QR")
+        qr_image = generate_qr(_qr_payload(request_payload, recommendation_response))
+        st.image(qr_image, caption="Recommendation and input traceability payload")
+        st.download_button(
+            label="Download traceability QR",
+            data=qr_image,
+            file_name=f"{request_payload['commodity']['name']}_packaging_qr.png",
+            mime="image/png",
+        )
+
+    if recommendation_response.get("warnings"):
+        st.warning("; ".join(recommendation_response["warnings"]))
+
+    st.subheader("Optional AI explanation")
+    if st.button("Generate Ollama narrative", key="generate_ollama"):
+        try:
+            report = generate_ollama_report(request_payload, recommendation_response, language)
+            st.markdown(report or "The local model returned no text.")
+        except requests.RequestException as error:
+            st.error(f"Ollama is unavailable: {error}")
+        except ValueError as error:
+            st.error(f"Ollama returned invalid data: {error}")
+
+    render_feedback_form(recommendations)
+
+
+def render_feedback_form(recommendations: list[dict[str, Any]]) -> None:
+    recommendation_ids = [item["recommendation_id"] for item in recommendations]
+    labels = {
+        item["recommendation_id"]: f"{item['material']} ({item['recommendation_id'][:8]})"
+        for item in recommendations
+    }
+    st.subheader("Record pilot outcome")
+    with st.form("feedback_form"):
+        recommendation_id = st.selectbox(
+            "Recommendation",
+            options=recommendation_ids,
+            format_func=lambda value: labels[value],
+        )
+        actual_shelf_life = st.number_input(
+            "Observed shelf life (days)",
+            min_value=0,
+            max_value=3650,
+            value=int(recommendations[0]["predicted_shelf_life_days"]),
+            step=1,
+        )
+        outcome = st.selectbox("Outcome", ["successful", "partial", "unsuccessful"])
+        notes = st.text_area("Notes", max_chars=2000)
+        submitted = st.form_submit_button("Save feedback", type="primary")
+    if submitted:
+        try:
+            result = submit_feedback(
+                {
+                    "recommendation_id": recommendation_id,
+                    "actual_shelf_life_days": int(actual_shelf_life),
+                    "outcome_rating": outcome,
+                    "notes": notes or None,
+                }
+            )
+        except requests.RequestException as error:
+            st.error(f"Feedback could not be saved: {error}")
+        else:
+            st.success(f"Feedback recorded as {result['feedback_id']}.")
+
+
+def main() -> None:
+    st.set_page_config(page_title="MoFPI Smart Packaging Engine", layout="wide")
+    st.title("AI-Powered Intelligent Food Packaging Recommendation System")
+    st.caption(
+        "Rules-based recommendation with optional local Ollama explanation and traceability QR"
+    )
+
+    with st.form("packaging_input_form"):
+        first, second, third = st.columns(3)
+        with first:
+            st.subheader("Commodity")
+            commodity_name = st.text_input(
+                "Food commodity",
+                placeholder="e.g., Guava, paneer, rice",
+            )
+            category_label = st.selectbox("Category", list(CATEGORY_OPTIONS))
+            desired_shelf_life = int(
+                st.number_input("Target shelf life (days)", min_value=1, max_value=3650, value=14)
+            )
+            language = st.selectbox("Explanation language", ["English", "Hindi", "Marathi"])
+        with second:
+            st.subheader("Physical properties")
+            moisture = float(st.slider("Moisture content (%)", 0.0, 100.0, 65.0))
+            fat_content = float(st.slider("Oil/fat content (%)", 0.0, 100.0, 5.0))
+            ph_level = float(
+                st.number_input("pH", min_value=0.0, max_value=14.0, value=5.5, step=0.1)
+            )
+            respiration_label = st.selectbox("Respiration rate", list(RESPIRATION_OPTIONS))
+        with third:
+            st.subheader("Environment and logistics")
+            storage_label = st.selectbox("Storage condition", list(STORAGE_OPTIONS))
+            storage_type, default_storage_temp = STORAGE_OPTIONS[storage_label]
+            storage_temp_c = float(
+                st.number_input(
+                    "Storage temperature (C)",
+                    min_value=-60.0,
+                    max_value=60.0,
+                    value=default_storage_temp,
+                    step=0.5,
+                )
+            )
+            relative_humidity = float(st.slider("Relative humidity (%)", 0.0, 100.0, 85.0))
+            transport_label = st.selectbox("Transport mode", list(TRANSPORT_OPTIONS))
+            transport_duration_hr = float(
+                st.number_input(
+                    "Transport duration (hours)",
+                    min_value=0.0,
+                    max_value=8760.0,
+                    value=24.0,
+                )
+            )
+        submitted = st.form_submit_button("Generate packaging specification", type="primary")
+
+    if submitted:
+        if not commodity_name.strip():
+            st.warning("Enter a commodity name before generating a recommendation.")
+        else:
+            payload = build_request_payload(
+                commodity_name=commodity_name.strip(),
+                category=CATEGORY_OPTIONS[category_label],
+                desired_shelf_life=desired_shelf_life,
+                moisture=moisture,
+                fat_content=fat_content,
+                ph_level=ph_level,
+                respiration=RESPIRATION_OPTIONS[respiration_label],
+                storage_type=storage_type,
+                storage_temp_c=storage_temp_c,
+                relative_humidity_pct=relative_humidity,
+                transport_mode=TRANSPORT_OPTIONS[transport_label],
+                transport_duration_hr=transport_duration_hr,
+            )
+            try:
+                recommendation_response = fetch_recommendation(payload)
+            except (requests.RequestException, ValueError) as error:
+                st.error(f"Recommendation API unavailable: {error}")
+            else:
+                st.session_state["recommendation_request"] = payload
+                st.session_state["recommendation_response"] = recommendation_response
+                st.session_state["report_language"] = language
+
+    request_payload = st.session_state.get("recommendation_request")
+    recommendation_response = st.session_state.get("recommendation_response")
+    if isinstance(request_payload, dict) and isinstance(recommendation_response, dict):
+        render_results(
+            request_payload,
+            recommendation_response,
+            str(st.session_state.get("report_language", "English")),
+        )
+
+
+if __name__ == "__main__":
+    main()

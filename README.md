@@ -14,6 +14,7 @@ The initial implementation is a transparent rules-based MVP. It ranks material f
 - Returns warnings for contradictory inputs and reduced-confidence nearest matches.
 - Persists each recommendation and accepts one outcome record per recommendation through `POST /feedback`.
 - Exposes `/health`, `POST /recommend`, and `POST /feedback` through FastAPI.
+- Provides a Streamlit client that submits the validated payload to the API, displays the ranked matrix, generates traceability QR codes, records feedback, and can optionally use a local Ollama model for an explanation.
 - Includes API, engine, boundary, persistence, and regression tests plus GitHub Actions CI.
 
 ## Quick start
@@ -22,13 +23,21 @@ Requires Python 3.11 or newer.
 
 ```bash
 python -m venv .venv
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,ui]"
 python -m uvicorn app.main:app --reload
 ```
 
 On Windows, replace `python` with `py` when needed.
 
 The API is available at `http://127.0.0.1:8000`, with interactive documentation at `http://127.0.0.1:8000/docs`.
+
+Run the Streamlit client in a second terminal:
+
+```bash
+python -m streamlit run app.py
+```
+
+The UI reads `FOOD_PACKAGING_API_URL` when it needs a different API address. Its optional Ollama integration reads `OLLAMA_URL` and `OLLAMA_MODEL`; the rules-based API remains usable when Ollama is offline.
 
 ## Example request
 
@@ -80,7 +89,8 @@ app/
   store.py              SQLite recommendation and feedback persistence
   main.py               FastAPI application and endpoints
   schemas.py            Request and response contracts
- tests/                  API and engine tests
+app.py                  Streamlit client for the recommendation API
+tests/                  API and engine tests
  00_README.md            Original design-document index
  01–07_*.md              Architecture, data flow, agent, data, roadmap, evaluation docs
 ```
@@ -103,4 +113,4 @@ The material ranges and rule thresholds are an engineering starting point for pr
 2. Add retrieval endpoints for recommendation history and feedback analytics.
 3. Add a calibrated shelf-life model trained on literature and pilot outcomes.
 4. Add a material-ranking model as a re-ranking layer over the hard rule filters.
-5. Build the web input form and results dashboard described in the design documents.
+5. Add authenticated recommendation history and feedback analytics to the web dashboard.
