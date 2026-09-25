@@ -1,0 +1,92 @@
+[
+  {
+    "name": "Tomato",
+    "aliases": ["tomatoes"],
+    "category": "fresh_produce",
+    "moisture_content_pct": 94.5,
+    "fat_content_pct": 0.2,
+    "ph": 4.3,
+    "respiration_rate_ml_co2_per_kg_hr": 15
+  },
+  {
+    "name": "Banana",
+    "aliases": ["bananas"],
+    "category": "fresh_produce",
+    "moisture_content_pct": 75,
+    "fat_content_pct": 0.3,
+    "ph": 5.5,
+    "respiration_rate_ml_co2_per_kg_hr": 12
+  },
+  {
+    "name": "Leafy greens",
+    "aliases": ["spinach", "lettuce"],
+    "category": "fresh_produce",
+    "moisture_content_pct": 92,
+    "fat_content_pct": 0.2,
+    "ph": 6.2,
+    "respiration_rate_ml_co2_per_kg_hr": 18
+  },
+  {
+    "name": "Milk",
+    "aliases": ["whole milk"],
+    "category": "dairy",
+    "moisture_content_pct": 87,
+    "fat_content_pct": 3.5,
+    "ph": 6.6,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Chicken",
+    "aliases": ["poultry"],
+    "category": "meat_poultry",
+    "moisture_content_pct": 75,
+    "fat_content_pct": 5,
+    "ph": 5.8,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Bread",
+    "aliases": ["bakery bread"],
+    "category": "bakery",
+    "moisture_content_pct": 35,
+    "fat_content_pct": 4,
+    "ph": 5.4,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Rice",
+    "aliases": ["paddy rice", "milled rice"],
+    "category": "dry_staple",
+    "moisture_content_pct": 14,
+    "fat_content_pct": 0.8,
+    "ph": 6.5,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Wheat flour",
+    "aliases": ["flour"],
+    "category": "dry_staple",
+    "moisture_content_pct": 13,
+    "fat_content_pct": 1.2,
+    "ph": 6.2,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Olive oil",
+    "aliases": ["oil"],
+    "category": "oil_fat_rich",
+    "moisture_content_pct": 0.1,
+    "fat_content_pct": 100,
+    "ph": 4.5,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  },
+  {
+    "name": "Ready-to-eat meal",
+    "aliases": ["rte meal", "prepared meal"],
+    "category": "ready_to_eat",
+    "moisture_content_pct": 70,
+    "fat_content_pct": 8,
+    "ph": 5.8,
+    "respiration_rate_ml_co2_per_kg_hr": 0
+  }
+]
